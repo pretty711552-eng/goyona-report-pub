@@ -19,7 +19,44 @@ CAFE24_BASE = "https://goyonaband.cafe24api.com/api/v2"
 CAFE24_ANALYTICS_BASE = "https://ca-api.cafe24data.com"
 CAFE24_MALL_ID = "goyonaband"
 PRODUCT_COST = int(os.environ.get("PRODUCT_COST", "0"))
+META_ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
+META_AD_ACCOUNT_ID = os.environ.get("META_AD_ACCOUNT_ID", "")
+USD_KRW = float(os.environ.get("USD_KRW", "1380"))
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cafe24_state.json")
+
+
+def meta_daily_spend(date_str):
+    """메타 광고 특정일 합계. 토큰 없거나 오류면 None 반환."""
+    if not META_ACCESS_TOKEN or not META_AD_ACCOUNT_ID:
+        return None
+    try:
+        params = {
+            "access_token": META_ACCESS_TOKEN,
+            "fields": "spend,impressions,clicks,actions,action_values",
+            "level": "account",
+            "time_range": json.dumps({"since": date_str, "until": date_str}),
+        }
+        url = f"https://graph.facebook.com/v21.0/{META_AD_ACCOUNT_ID}/insights?{urllib.parse.urlencode(params)}"
+        with urllib.request.urlopen(url, timeout=15) as r:
+            data = json.loads(r.read())
+        rows = data.get("data", [])
+        if not rows:
+            return {"spend": 0, "impressions": 0, "clicks": 0, "purchases": 0, "purchase_value": 0}
+        row = rows[0]
+        spend_krw = int(float(row.get("spend", 0)) * USD_KRW)
+        purchase_keys = ("purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase")
+        purchases = sum(int(a["value"]) for a in row.get("actions", []) if a["action_type"] in purchase_keys)
+        purchase_val = sum(float(a["value"]) for a in row.get("action_values", []) if a["action_type"] in purchase_keys)
+        return {
+            "spend": spend_krw,
+            "impressions": int(row.get("impressions", 0)),
+            "clicks": int(row.get("clicks", 0)),
+            "purchases": purchases,
+            "purchase_value": int(purchase_val * USD_KRW),
+        }
+    except Exception as e:
+        print(f"메타 광고 조회 실패: {e}")
+        return None
 
 def load_saved_tokens():
     try:
@@ -210,13 +247,21 @@ def run():
     d_repeat = sum(1 for o in d_paid if o.get('member_id') and o.get('first_order') != 'T')
 
     cost = y_p * PRODUCT_COST
-    profit = y_rev - cost
     cvr = (y_p / y["users"] * 100) if y["users"] > 0 else 0
     d_cvr = (d_p / d["users"] * 100) if d["users"] > 0 else 0
     aov = y_rev / y_p if y_p > 0 else 0
     d_aov = d_rev / d_p if d_p > 0 else 0
     d_cost = d_p * PRODUCT_COST
-    d_profit = d_rev - d_cost
+
+    # 메타 광고비/ROAS 연결
+    y_meta = meta_daily_spend(y_str) or {}
+    d_meta = meta_daily_spend(d_str) or {}
+    y_ad = y_meta.get("spend", 0)
+    d_ad = d_meta.get("spend", 0)
+    profit = y_rev - cost - y_ad
+    d_profit = d_rev - d_cost - d_ad
+    roas = (y_rev / y_ad * 100) if y_ad > 0 else 0
+    d_roas = (d_rev / d_ad * 100) if d_ad > 0 else 0
 
     m = ""
     m += "━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -234,8 +279,13 @@ def run():
 
     m += "<b>[ 수익 ]</b>\n\n"
     m += f"  원가          <b>{cost:,.0f}</b>원{pct(cost, d_cost)}\n"
-    m += f"  광고비        <b>미연결</b>\n"
-    m += f"  순이익        <b>{profit:,.0f}</b>원{pct(profit, d_profit)}  (광고비 제외)\n"
+    if y_ad > 0 or d_ad > 0:
+        m += f"  광고비(메타)  <b>{y_ad:,.0f}</b>원{pct(y_ad, d_ad)}\n"
+        m += f"  순이익        <b>{profit:,.0f}</b>원{pct(profit, d_profit)}\n"
+        m += f"  ROAS          <b>{roas:,.0f}%</b>{pct(roas, d_roas)}\n"
+    else:
+        m += f"  광고비        <b>미연결</b>  (메타 토큰 만료 또는 미설정)\n"
+        m += f"  순이익        <b>{profit:,.0f}</b>원{pct(profit, d_profit)}  (광고비 제외)\n"
     m += f"  전환율        <b>{cvr:.2f}%</b>{pct(cvr, d_cvr)}\n\n"
 
     m += "<b>[ 방문 ]</b>\n\n"
