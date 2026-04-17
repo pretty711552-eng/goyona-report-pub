@@ -25,6 +25,25 @@ USD_KRW = float(os.environ.get("USD_KRW", "1380"))
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cafe24_state.json")
 
 
+def notify_error(where: str, err: Exception, detail: str = "") -> None:
+    """실패 지점을 텔레그램 DM으로 즉시 알림. 다음 장애 원인 가시화용.
+
+    Why: 기존 bare except가 에러를 전부 삼켜 장애 원인 불명이었음 (2026-04-17 사건).
+    """
+    try:
+        msg = f"🚨 daily_report 에러\n위치: {where}\n{type(err).__name__}: {err}"
+        if detail:
+            msg += f"\n{detail}"
+        msg = msg[:3800]
+        data = urllib.parse.urlencode({"chat_id": CHAT_ID, "text": msg}).encode()
+        urllib.request.urlopen(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            data=data, timeout=10,
+        )
+    except Exception:
+        pass
+
+
 def meta_daily_spend(date_str):
     """메타 광고 특정일 합계. 토큰 없거나 오류면 None 반환."""
     if not META_ACCESS_TOKEN or not META_AD_ACCOUNT_ID:
@@ -89,8 +108,8 @@ def refresh_cafe24():
         try:
             with open(local_token) as f:
                 return json.load(f)["access_token"]
-        except:
-            pass
+        except Exception as e:
+            notify_error("refresh_cafe24:local_token_read", e)
     # GitHub Actions fallback: 자체 refresh
     auth = base64.b64encode(f"{CAFE24_CLIENT_ID}:{CAFE24_CLIENT_SECRET}".encode()).decode()
     saved = load_saved_tokens()
@@ -105,8 +124,20 @@ def refresh_cafe24():
         result = json.loads(resp.read())
         save_tokens(result["access_token"], result["refresh_token"])
         return result["access_token"]
-    except:
-        pass
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode()[:300]
+        except Exception:
+            pass
+        notify_error(
+            "refresh_cafe24:api",
+            e,
+            f"HTTP {e.code} body={body} refresh_token_prefix={refresh_token[:8]}",
+        )
+    except Exception as e:
+        notify_error("refresh_cafe24:api", e,
+                     f"refresh_token_prefix={refresh_token[:8]}")
     if saved.get("access_token"):
         return saved["access_token"]
     return ""

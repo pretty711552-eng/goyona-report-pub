@@ -1,8 +1,8 @@
 name: 고요나 전날 매출 정리
 
 on:
-  schedule:
-    - cron: '0 3 * * *'  # 매일 UTC 03:00 = KST 12:00
+  # 2026-04-17: 로컬 cron(매일 12:00 KST)으로 이관. schedule 제거해 중복 발송·secret stale 실패 방지.
+  # 수동 트리거(workflow_dispatch)는 백업용으로 유지.
   workflow_dispatch:
 
 permissions:
@@ -37,15 +37,6 @@ jobs:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
           META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
         run: python daily_report.py
-
-      - name: 토큰 갱신분 커밋
-        run: |
-          if [ -f cafe24_state.json ]; then
-            git config user.name "github-actions"
-            git config user.email "actions@github.com"
-            git add cafe24_state.json
-            git diff --cached --quiet || (git commit -m "카페24 토큰 자동 갱신(daily)" && git push)
-          fi
 
       - name: 실패 시 텔레그램 알림
         if: failure()
