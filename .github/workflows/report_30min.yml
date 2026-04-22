@@ -2,8 +2,9 @@ name: 고요나 리포트(교차검증판)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0,30 * * * *'  # 30분마다 텔레그램 리포트
+  # 2026-04-22 로컬 launchd 이관 (com.goyona.cross-report) · 중복 실행 방지 위해 schedule 제거
+  # 이유: cafe24 refresh_token 1회성 정책 · GitHub Actions는 매번 stale env 사용 → 실패 누적
+  # 로컬은 cafe24_state.json rotation으로 stale 원천 소멸
 
 permissions:
   contents: write
